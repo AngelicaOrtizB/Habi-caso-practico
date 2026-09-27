@@ -18,8 +18,6 @@ import java.util.function.IntFunction;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import billetera.services.BilleteraServicio;
@@ -28,8 +26,7 @@ import billetera.services.BilleteraServicio;
  * Varios hilos golpean las mismas cuentas al mismo tiempo. Cada hilo usa su propia
  * conexión, así que la base de datos ve operaciones realmente simultáneas.
  */
-@SpringBootTest
-@Import(TestcontainersConfiguration.class)
+@PruebaDeIntegracion
 class ConcurrenciaTest {
 
 	@Autowired

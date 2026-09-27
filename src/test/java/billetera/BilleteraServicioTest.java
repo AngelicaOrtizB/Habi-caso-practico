@@ -9,8 +9,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -20,8 +18,7 @@ import billetera.services.BilleteraServicio;
  * Cada test crea sus propias cuentas, así que no hace falta limpiar la base entre
  * tests (y no se podría: la tabla movimientos no deja borrar).
  */
-@SpringBootTest
-@Import(TestcontainersConfiguration.class)
+@PruebaDeIntegracion
 class BilleteraServicioTest {
 
 	private static final UUID FONDEO = BilleteraServicio.CUENTA_FONDEO_EXTERNO;
