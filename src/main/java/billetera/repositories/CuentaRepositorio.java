@@ -1,6 +1,7 @@
 package billetera.repositories;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -33,6 +34,13 @@ public class CuentaRepositorio {
 			.param("titular", titular)
 			.query(MAPEO)
 			.single();
+	}
+
+	/** Solo cuentas de usuario: la de fondeo es interna y no se puede usar desde la API. */
+	public List<Cuenta> listarCuentasDeUsuario() {
+		return jdbc.sql("SELECT " + COLUMNAS + " FROM cuentas WHERE tipo = 'USUARIO' ORDER BY creada_en, id")
+			.query(MAPEO)
+			.list();
 	}
 
 	public Optional<Cuenta> buscarPorId(UUID id) {

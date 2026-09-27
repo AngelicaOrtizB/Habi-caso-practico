@@ -48,6 +48,11 @@ public class CuentaControlador {
 		return billetera.crearCuenta(pedido.titular());
 	}
 
+	@GetMapping
+	public List<Cuenta> listar() {
+		return billetera.listarCuentas();
+	}
+
 	/** Incluye el saldo actual en {@code saldoCentavos}. */
 	@GetMapping("/{id}")
 	public Cuenta consultar(@PathVariable UUID id) {

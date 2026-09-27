@@ -65,6 +65,10 @@ public class BilleteraServicio {
 		return buscarCuenta(cuentaId).saldoCentavos();
 	}
 
+	public List<Cuenta> listarCuentas() {
+		return cuentas.listarCuentasDeUsuario();
+	}
+
 	public Cuenta buscarCuenta(UUID cuentaId) {
 		return cuentas.buscarPorId(cuentaId).orElseThrow(() -> new CuentaNoEncontradaException(cuentaId));
 	}

@@ -68,6 +68,15 @@ class ApiTest {
 	}
 
 	@Test
+	void listarCuentasIncluyeLasDeUsuarioPeroNoLaDeFondeo() {
+		String ana = crearCuenta("Ana");
+
+		String cuerpo = cuerpo(mvc.get().uri("/cuentas").exchange());
+		List<String> ids = JsonPath.read(cuerpo, "$[*].id");
+		assertThat(ids).contains(ana).doesNotContain("00000000-0000-0000-0000-000000000001");
+	}
+
+	@Test
 	void sinFondosResponde422ConMensajeEnEspanol() {
 		String ana = crearCuenta("Ana");
 		String beto = crearCuenta("Beto");
