@@ -1,124 +1,99 @@
--- V1: esquema inicial
--- Montos siempre en centavos (BIGINT). Nunca decimales flotantes.
+-- V1: esquema inicial de la billetera.
+-- Todos los montos van en centavos como BIGINT: nunca decimales flotantes.
 
 -- ============================================================
 -- CUENTAS
 -- ============================================================
--- Las cuentas SYSTEM (ej. "fondeo externo") representan dinero que
--- entra/sale del sistema y son las únicas que pueden quedar negativas.
-CREATE TABLE accounts (
-    id            UUID PRIMARY KEY,
-    owner_name    VARCHAR(120) NOT NULL,
-    kind          VARCHAR(10)  NOT NULL DEFAULT 'USER'
-                  CHECK (kind IN ('USER', 'SYSTEM')),
-    balance_cents BIGINT       NOT NULL DEFAULT 0,
-    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+-- Las cuentas SISTEMA representan plata que entra o sale del sistema
+-- (ej. el fondeo externo simulado). Son las únicas que pueden quedar negativas.
+CREATE TABLE cuentas (
+    id             UUID PRIMARY KEY,
+    titular        VARCHAR(120) NOT NULL,
+    tipo           VARCHAR(10)  NOT NULL DEFAULT 'USUARIO'
+                   CHECK (tipo IN ('USUARIO', 'SISTEMA')),
+    -- Caché del saldo: siempre igual a la suma de los movimientos de la cuenta.
+    -- Se actualiza en la misma transacción de BD en que se escribe el movimiento.
+    saldo_centavos BIGINT       NOT NULL DEFAULT 0,
+    creada_en      TIMESTAMPTZ  NOT NULL DEFAULT now(),
     -- Segunda línea de defensa: aunque el código falle, un usuario
     -- nunca puede quedar con saldo negativo.
-    CONSTRAINT chk_balance_non_negative
-        CHECK (kind = 'SYSTEM' OR balance_cents >= 0)
+    CONSTRAINT chk_saldo_no_negativo
+        CHECK (tipo = 'SISTEMA' OR saldo_centavos >= 0)
 );
 
 -- ============================================================
 -- TRANSACCIONES (el "qué pasó")
 -- ============================================================
-CREATE TABLE transactions (
-    id              UUID PRIMARY KEY,
-    type            VARCHAR(20)  NOT NULL
-                    CHECK (type IN ('DEPOSIT', 'TRANSFER', 'SPLIT_PAYMENT')),
-    -- Evita cobros dobles cuando el cliente reintenta.
-    idempotency_key VARCHAR(100) NOT NULL UNIQUE,
-    description     VARCHAR(255),
-    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
+CREATE TABLE transacciones (
+    id                 UUID PRIMARY KEY,
+    tipo               VARCHAR(20)  NOT NULL
+                       CHECK (tipo IN ('CARGA', 'TRANSFERENCIA')),
+    -- La llave la manda el cliente. UNIQUE evita mover plata dos veces
+    -- cuando el cliente reintenta, incluso con reintentos concurrentes.
+    llave_idempotencia VARCHAR(100) NOT NULL UNIQUE,
+    descripcion        VARCHAR(255),
+    creada_en          TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
 -- ============================================================
--- LEDGER (el "cómo se movió la plata") - inmutable
+-- MOVIMIENTOS (el "cómo se movió la plata") - inmutables
 -- ============================================================
--- Cada transacción genera >= 2 asientos cuya suma es exactamente 0.
+-- Cada transacción genera al menos 2 movimientos cuya suma es exactamente 0.
 -- Negativo = sale de la cuenta, positivo = entra.
-CREATE TABLE ledger_entries (
+CREATE TABLE movimientos (
     id             BIGSERIAL PRIMARY KEY,
-    transaction_id UUID   NOT NULL REFERENCES transactions(id),
-    account_id     UUID   NOT NULL REFERENCES accounts(id),
-    amount_cents   BIGINT NOT NULL CHECK (amount_cents <> 0),
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    transaccion_id UUID        NOT NULL REFERENCES transacciones(id),
+    cuenta_id      UUID        NOT NULL REFERENCES cuentas(id),
+    monto_centavos BIGINT      NOT NULL CHECK (monto_centavos <> 0),
+    creado_en      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_ledger_account ON ledger_entries(account_id, created_at DESC);
-CREATE INDEX idx_ledger_tx ON ledger_entries(transaction_id);
+-- Historial de una cuenta paginado por id (cursor): el id es estrictamente
+-- creciente, a diferencia de creado_en, que se repite dentro de una transacción.
+CREATE INDEX idx_movimientos_cuenta ON movimientos(cuenta_id, id DESC);
+CREATE INDEX idx_movimientos_transaccion ON movimientos(transaccion_id);
 
 -- Garantía a nivel de base de datos: al hacer COMMIT, cada transacción
 -- debe sumar exactamente cero. Si no, Postgres rechaza todo.
-CREATE FUNCTION check_transaction_balanced() RETURNS TRIGGER AS $$
+-- Es DEFERRED porque los movimientos se insertan de a uno: después del
+-- primero la suma todavía no es cero, y eso es válido hasta el COMMIT.
+CREATE FUNCTION verificar_transaccion_cuadrada() RETURNS TRIGGER AS $$
 DECLARE
     total BIGINT;
 BEGIN
-    SELECT COALESCE(SUM(amount_cents), 0) INTO total
-    FROM ledger_entries
-    WHERE transaction_id = NEW.transaction_id;
+    SELECT COALESCE(SUM(monto_centavos), 0) INTO total
+    FROM movimientos
+    WHERE transaccion_id = NEW.transaccion_id;
 
     IF total <> 0 THEN
         RAISE EXCEPTION 'Transacción % descuadrada: suma = %',
-            NEW.transaction_id, total;
+            NEW.transaccion_id, total;
     END IF;
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE CONSTRAINT TRIGGER trg_transaction_balanced
-    AFTER INSERT ON ledger_entries
+CREATE CONSTRAINT TRIGGER trg_transaccion_cuadrada
+    AFTER INSERT ON movimientos
     DEFERRABLE INITIALLY DEFERRED
-    FOR EACH ROW EXECUTE FUNCTION check_transaction_balanced();
+    FOR EACH ROW EXECUTE FUNCTION verificar_transaccion_cuadrada();
 
--- El ledger no se edita ni se borra: los errores se corrigen con
--- asientos compensatorios, igual que en contabilidad real.
-CREATE FUNCTION forbid_ledger_mutation() RETURNS TRIGGER AS $$
+-- Los movimientos no se editan ni se borran: los errores se corrigen con
+-- un movimiento en sentido contrario, como en un extracto bancario.
+CREATE FUNCTION prohibir_cambios_en_movimientos() RETURNS TRIGGER AS $$
 BEGIN
-    RAISE EXCEPTION 'ledger_entries es inmutable';
+    RAISE EXCEPTION 'La tabla movimientos es inmutable';
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_ledger_immutable
-    BEFORE UPDATE OR DELETE ON ledger_entries
-    FOR EACH ROW EXECUTE FUNCTION forbid_ledger_mutation();
+CREATE TRIGGER trg_movimientos_inmutables
+    BEFORE UPDATE OR DELETE ON movimientos
+    FOR EACH ROW EXECUTE FUNCTION prohibir_cambios_en_movimientos();
 
 -- ============================================================
--- COBROS DIVIDIDOS (feature extra)
+-- DATOS INICIALES
 -- ============================================================
-CREATE TABLE split_requests (
-    id                 UUID PRIMARY KEY,
-    creator_account_id UUID         NOT NULL REFERENCES accounts(id),
-    total_cents        BIGINT       NOT NULL CHECK (total_cents > 0),
-    description        VARCHAR(255) NOT NULL,
-    status             VARCHAR(10)  NOT NULL DEFAULT 'OPEN'
-                       CHECK (status IN ('OPEN', 'COMPLETED', 'CANCELLED')),
-    created_at         TIMESTAMPTZ  NOT NULL DEFAULT now()
-);
-
-CREATE TABLE split_shares (
-    id                  UUID PRIMARY KEY,
-    split_request_id    UUID        NOT NULL REFERENCES split_requests(id),
-    debtor_account_id   UUID        NOT NULL REFERENCES accounts(id),
-    amount_cents        BIGINT      NOT NULL CHECK (amount_cents > 0),
-    status              VARCHAR(10) NOT NULL DEFAULT 'PENDING'
-                        CHECK (status IN ('PENDING', 'PAID', 'CANCELLED')),
-    -- Una cuota pagada apunta exactamente a UNA transacción; UNIQUE
-    -- impide que la misma transacción "pague" dos cuotas.
-    paid_transaction_id UUID UNIQUE REFERENCES transactions(id),
-    paid_at             TIMESTAMPTZ,
-    -- Una persona tiene una sola cuota por cobro.
-    CONSTRAINT uq_one_share_per_debtor UNIQUE (split_request_id, debtor_account_id),
-    -- Coherencia de estado: PAID si y solo si hay transacción asociada.
-    CONSTRAINT chk_paid_consistency CHECK (
-        (status = 'PAID' AND paid_transaction_id IS NOT NULL AND paid_at IS NOT NULL)
-        OR
-        (status <> 'PAID' AND paid_transaction_id IS NULL AND paid_at IS NULL)
-    )
-);
-
-CREATE INDEX idx_shares_debtor ON split_shares(debtor_account_id, status);
-
--- Cuenta de sistema para simular cargas de saldo (dinero que entra desde fuera).
-INSERT INTO accounts (id, owner_name, kind)
-VALUES ('00000000-0000-0000-0000-000000000001', 'Fondeo externo (simulado)', 'SYSTEM');
+-- Cuenta SISTEMA contrapartida de toda carga de saldo simulada: la plata
+-- "entra" desde aquí, que queda negativa, y la suma total sigue siendo 0.
+INSERT INTO cuentas (id, titular, tipo)
+VALUES ('00000000-0000-0000-0000-000000000001', 'Fondeo externo (simulado)', 'SISTEMA');

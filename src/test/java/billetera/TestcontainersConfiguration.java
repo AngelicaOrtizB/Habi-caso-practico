@@ -1,4 +1,4 @@
-package com.angelica.billetera;
+package billetera;
 
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;

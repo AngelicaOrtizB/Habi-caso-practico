@@ -1,4 +1,4 @@
-package com.angelica.billetera;
+package billetera;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
