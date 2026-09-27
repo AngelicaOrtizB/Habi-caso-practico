@@ -8,10 +8,13 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+import billetera.CobroNoEncontradoException;
 import billetera.ConflictoIdempotenciaException;
 import billetera.CuentaNoEncontradaException;
+import billetera.CuotaNoEncontradaException;
 import billetera.FondosInsuficientesException;
 import billetera.OperacionInvalidaException;
+import billetera.OperacionNoPermitidaException;
 
 /**
  * Traduce los errores de negocio a códigos HTTP, para que quien llama sepa qué pasó
@@ -24,6 +27,22 @@ public class ManejadorDeErrores {
 	@ExceptionHandler(CuentaNoEncontradaException.class)
 	ProblemDetail cuentaNoEncontrada(CuentaNoEncontradaException e) {
 		return problema(HttpStatus.NOT_FOUND, "Cuenta no encontrada", e.getMessage());
+	}
+
+	@ExceptionHandler(CobroNoEncontradoException.class)
+	ProblemDetail cobroNoEncontrado(CobroNoEncontradoException e) {
+		return problema(HttpStatus.NOT_FOUND, "Cobro no encontrado", e.getMessage());
+	}
+
+	@ExceptionHandler(CuotaNoEncontradaException.class)
+	ProblemDetail cuotaNoEncontrada(CuotaNoEncontradaException e) {
+		return problema(HttpStatus.NOT_FOUND, "Cuota no encontrada", e.getMessage());
+	}
+
+	/** 409: el estado actual no lo permite (ej. pagar una cuota que ya se pagó). */
+	@ExceptionHandler(OperacionNoPermitidaException.class)
+	ProblemDetail operacionNoPermitida(OperacionNoPermitidaException e) {
+		return problema(HttpStatus.CONFLICT, "Operación no permitida", e.getMessage());
 	}
 
 	/** 422: el pedido está bien escrito, pero no se puede cumplir con el saldo actual. */

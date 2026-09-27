@@ -48,11 +48,11 @@ def llamar(metodo, ruta, cuerpo=None, llave=None):
         raise ErrorApi(detalle or f"Error HTTP {e.code}")
 
 
-def mover_plata(ruta, cuerpo):
+def enviar_con_llave(ruta, cuerpo):
     """
     Genera UNA llave de idempotencia por operación y la reusa en cada reintento. Si la
-    conexión se cae después de que el servidor movió la plata, el reintento devuelve la
-    misma transacción en vez de cobrar dos veces.
+    conexión se cae después de que el servidor movió la plata (o creó el cobro), el
+    reintento devuelve el mismo resultado en vez de hacerlo dos veces.
     """
     llave = str(uuid.uuid4())
     for intento in range(1, REINTENTOS + 1):
@@ -158,7 +158,7 @@ def cargar_saldo():
     if not cuenta:
         return
     monto = pedir_monto("Monto a cargar ($): ")
-    mover_plata(f"/cuentas/{cuenta['id']}/cargas", {"montoCentavos": monto})
+    enviar_con_llave(f"/cuentas/{cuenta['id']}/cargas", {"montoCentavos": monto})
     saldo = llamar("GET", f"/cuentas/{cuenta['id']}")["saldoCentavos"]
     print(f"  ✓ Cargaste {formato(monto)} a {cuenta['titular']}. Saldo nuevo: {formato(saldo)}")
 
@@ -175,7 +175,7 @@ def transferir():
     if not confirmar(f"¿Enviar {formato(monto)} de {origen['titular']} a {destino['titular']}?"):
         print("  Cancelado, no se movió plata.")
         return
-    mover_plata("/transferencias", {"origenId": origen["id"], "destinoId": destino["id"],
+    enviar_con_llave("/transferencias", {"origenId": origen["id"], "destinoId": destino["id"],
                                     "montoCentavos": monto, "descripcion": descripcion})
     print("  ✓ Transferencia hecha. Saldos nuevos:")
     for c in (origen, destino):
@@ -206,6 +206,10 @@ def ver_historial():
         for linea in pagina["lineas"]:
             if linea["tipo"] == "CARGA":
                 detalle = "Carga de saldo"
+            elif linea["tipo"] == "PAGO_CUOTA" and linea["montoCentavos"] < 0:
+                detalle = f"Pagaste tu cuota a {linea['contraparteTitular']}"
+            elif linea["tipo"] == "PAGO_CUOTA":
+                detalle = f"{linea['contraparteTitular']} te pagó su cuota"
             elif linea["montoCentavos"] < 0:
                 detalle = f"Enviado a {linea['contraparteTitular']}"
             else:
@@ -228,6 +232,104 @@ def ver_cuentas():
         print(f"  {c['titular']:<20} {formato(c['saldoCentavos']):>18}")
 
 
+# ------------------------------------------------------------------ cobros divididos
+
+ICONOS = {"PAGADA": "✓ pagó", "PENDIENTE": "… debe", "CANCELADA": "✗ cancelada"}
+
+
+def mostrar_cobro(cobro):
+    print(f"\n  {cobro['descripcion']} · cobra {cobro['cobradorTitular']} · {cobro['estado']}")
+    print(f"  Total {formato(cobro['totalCentavos'])} · pagado {formato(cobro['pagadoCentavos'])}"
+          f" · falta {formato(cobro['pendienteCentavos'])}")
+    for cuota in cobro["cuotas"]:
+        print(f"    {cuota['deudorTitular']:<20} {formato(cuota['montoCentavos']):>16}   {ICONOS[cuota['estado']]}")
+
+
+def elegir_de_lista(elementos, describir):
+    for i, elemento in enumerate(elementos, 1):
+        print(f"  {i}. {describir(elemento)}")
+    while True:
+        opcion = preguntar("Número: ")
+        if opcion.isdigit() and 1 <= int(opcion) <= len(elementos):
+            return elementos[int(opcion) - 1]
+        print("  ✗ Elige un número de la lista")
+
+
+def crear_cobro():
+    cobrador = elegir_cuenta("¿Quién pagó y ahora cobra?")
+    if not cobrador:
+        return
+    cuentas = llamar("GET", "/cuentas")
+    print("\n¿A quién le cobras? Escribe los números separados por coma (ej. 2,3,4)")
+    for i, c in enumerate(cuentas, 1):
+        print(f"  {i}. {c['titular']}")
+    while True:
+        numeros = [n.strip() for n in preguntar("Números: ").split(",") if n.strip()]
+        if numeros and all(n.isdigit() and 1 <= int(n) <= len(cuentas) for n in numeros):
+            deudores = [cuentas[int(n) - 1] for n in numeros]
+            break
+        print("  ✗ Escribe números de la lista, separados por coma")
+    total = pedir_monto("Total a dividir ($): ")
+    descripcion = preguntar("Descripción (ej. 'La cena'): ")
+    nombres = ", ".join(d["titular"] for d in deudores)
+    if not confirmar(f"¿Cobrar {formato(total)} de '{descripcion}' entre {nombres}?"):
+        print("  Cancelado, no se creó el cobro.")
+        return
+    cobro = enviar_con_llave("/cobros", {
+        "cobradorId": cobrador["id"], "totalCentavos": total, "descripcion": descripcion,
+        "deudores": [d["id"] for d in deudores]})
+    print("  ✓ Cobro creado:")
+    mostrar_cobro(cobro)
+
+
+def ver_cobros():
+    cuenta = elegir_cuenta("¿Los cobros de quién?")
+    if not cuenta:
+        return
+    cobros = llamar("GET", f"/cuentas/{cuenta['id']}/cobros")
+    if not cobros:
+        print(f"  {cuenta['titular']} no ha creado cobros.")
+        return
+    for cobro in cobros:
+        mostrar_cobro(cobro)
+
+
+def pagar_cuota():
+    cuenta = elegir_cuenta("¿Quién paga?")
+    if not cuenta:
+        return
+    pendientes = llamar("GET", f"/cuentas/{cuenta['id']}/cuotas-pendientes")
+    if not pendientes:
+        print(f"  {cuenta['titular']} no debe nada.")
+        return
+    print(f"\n{cuenta['titular']} debe:")
+    cuota = elegir_de_lista(pendientes, lambda c: f"{formato(c['montoCentavos']):>16} a {c['cobradorTitular']}"
+                                                  f" · {c['descripcion']}")
+    if not confirmar(f"¿Pagar {formato(cuota['montoCentavos'])} a {cuota['cobradorTitular']}?"):
+        print("  Cancelado, no se movió plata.")
+        return
+    pago = enviar_con_llave(f"/cuotas/{cuota['cuotaId']}/pago", None)
+    print(f"  ✓ Cuota pagada. Saldo de {cuenta['titular']}: "
+          f"{formato(llamar('GET', '/cuentas/' + cuenta['id'])['saldoCentavos'])}")
+    if pago["estadoCobro"] == "COMPLETADO":
+        print(f"  🎉 Con este pago, '{cuota['descripcion']}' quedó completo.")
+
+
+def cancelar_cobro():
+    cuenta = elegir_cuenta("¿Quién cancela uno de sus cobros?")
+    if not cuenta:
+        return
+    abiertos = [c for c in llamar("GET", f"/cuentas/{cuenta['id']}/cobros") if c["estado"] == "ABIERTO"]
+    if not abiertos:
+        print(f"  {cuenta['titular']} no tiene cobros abiertos.")
+        return
+    print("\n¿Cuál cobro?")
+    cobro = elegir_de_lista(abiertos, lambda c: f"{c['descripcion']} · falta {formato(c['pendienteCentavos'])}")
+    if not confirmar("Se anulan las cuotas pendientes; lo ya pagado NO se devuelve. ¿Cancelar?"):
+        return
+    mostrar_cobro(llamar("POST", f"/cobros/{cobro['id']}/cancelacion"))
+
+
 OPCIONES = {
     "1": ("Crear cuenta", crear_cuenta),
     "2": ("Cargar saldo", cargar_saldo),
@@ -235,6 +337,10 @@ OPCIONES = {
     "4": ("Consultar saldo", consultar_saldo),
     "5": ("Ver historial", ver_historial),
     "6": ("Ver todas las cuentas", ver_cuentas),
+    "7": ("Crear cobro dividido", crear_cobro),
+    "8": ("Ver mis cobros (quién pagó)", ver_cobros),
+    "9": ("Pagar una cuota", pagar_cuota),
+    "10": ("Cancelar un cobro", cancelar_cobro),
 }
 
 

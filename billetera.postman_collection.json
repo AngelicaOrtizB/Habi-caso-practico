@@ -400,6 +400,516 @@
           ]
         }
       ]
+    },
+    {
+      "name": "3. Cobros divididos",
+      "item": [
+        {
+          "name": "Crear cuenta de Caro",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base}}/cuentas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"titular\": \"Caro\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"caroId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear cuenta de Dani",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base}}/cuentas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"titular\": \"Dani\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"daniId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cargar $50.000 a Caro",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "carga-{{caroId}}"
+              }
+            ],
+            "url": "{{base}}/cuentas/{{caroId}}/cargas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"montoCentavos\": 5000000\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cargar $50.000 a Dani",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "carga-{{daniId}}"
+              }
+            ],
+            "url": "{{base}}/cuentas/{{daniId}}/cargas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"montoCentavos\": 5000000\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ana cobra $100.000 de la cena a Beto, Caro y Dani",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "cobro-cena-{{anaId}}"
+              }
+            ],
+            "url": "{{base}}/cobros",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cobradorId\": \"{{anaId}}\",\n  \"totalCentavos\": 10000000,\n  \"descripcion\": \"La cena de cumpleaños\",\n  \"deudores\": [\n    \"{{betoId}}\",\n    \"{{caroId}}\",\n    \"{{daniId}}\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 201 Created\", () => pm.response.to.have.status(201));",
+                  "const cobro = pm.response.json();",
+                  "pm.collectionVariables.set(\"cobroId\", cobro.id);",
+                  "pm.collectionVariables.set(\"cuotaBeto\", pm.response.json().cuotas.find(c => c.deudorCuentaId === pm.collectionVariables.get(\"betoId\")).id);",
+                  "pm.collectionVariables.set(\"cuotaCaro\", pm.response.json().cuotas.find(c => c.deudorCuentaId === pm.collectionVariables.get(\"caroId\")).id);",
+                  "pm.collectionVariables.set(\"cuotaDani\", pm.response.json().cuotas.find(c => c.deudorCuentaId === pm.collectionVariables.get(\"daniId\")).id);",
+                  "pm.test(\"Reparto: $33.333,34 + $33.333,33 + $33.333,33\", () => pm.expect(cobro.cuotas.map(c => c.montoCentavos)).to.eql([3333334, 3333333, 3333333]));",
+                  "pm.test(\"Las cuotas suman exactamente el total\", () => pm.expect(cobro.cuotas.reduce((s, c) => s + c.montoCentavos, 0)).to.eql(10000000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lo que debe Caro",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base}}/cuentas/{{caroId}}/cuotas-pendientes"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Caro le debe $33.333,33 a Ana\", () => {",
+                  "  const cuota = pm.response.json()[0];",
+                  "  pm.expect(cuota.cobradorTitular).to.eql(\"Ana\");",
+                  "  pm.expect(cuota.montoCentavos).to.eql(3333333);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Caro paga su cuota",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "pago-{{caroId}}"
+              }
+            ],
+            "url": "{{base}}/cuotas/{{cuotaCaro}}/pago"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"pagoCaroTransaccionId\", pm.response.json().transaccion.transaccionId);",
+                  "pm.test(\"El cobro sigue abierto\", () => pm.expect(pm.response.json().estadoCobro).to.eql(\"ABIERTO\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reintento del pago de Caro con la MISMA llave",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "pago-{{caroId}}"
+              }
+            ],
+            "url": "{{base}}/cuotas/{{cuotaCaro}}/pago"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Devuelve el MISMO pago, no cobra dos veces\", () => pm.expect(pm.response.json().transaccion.transaccionId).to.eql(pm.collectionVariables.get(\"pagoCaroTransaccionId\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Caro intenta pagar OTRA VEZ con otra llave (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "pago-doble-{{caroId}}"
+              }
+            ],
+            "url": "{{base}}/cuotas/{{cuotaCaro}}/pago"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 409: la cuota ya está pagada\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Beto intenta pagar sin plata suficiente (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "pago-sin-fondos-{{betoId}}"
+              }
+            ],
+            "url": "{{base}}/cuotas/{{cuotaBeto}}/pago"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 422: Beto solo tiene $20.000\", () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dani paga su cuota",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "pago-{{daniId}}"
+              }
+            ],
+            "url": "{{base}}/cuotas/{{cuotaDani}}/pago"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ana ve quién pagó y quién falta",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base}}/cobros/{{cobroId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "const cobro = pm.response.json();",
+                  "pm.test(\"Pagaron Caro y Dani, falta Beto\", () => pm.expect(cobro.cuotas.map(c => c.deudorTitular + \":\" + c.estado)).to.eql([\"Beto:PENDIENTE\", \"Caro:PAGADA\", \"Dani:PAGADA\"]));",
+                  "pm.test(\"Pagado $66.666,66 y falta $33.333,34\", () => { pm.expect(cobro.pagadoCentavos).to.eql(6666666); pm.expect(cobro.pendienteCentavos).to.eql(3333334); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Beto carga $20.000 más",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "carga-extra-{{betoId}}"
+              }
+            ],
+            "url": "{{base}}/cuentas/{{betoId}}/cargas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"montoCentavos\": 2000000\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Beto paga: el cobro queda COMPLETADO",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "pago-{{betoId}}"
+              }
+            ],
+            "url": "{{base}}/cuotas/{{cuotaBeto}}/pago"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Con el último pago el cobro queda COMPLETADO\", () => pm.expect(pm.response.json().estadoCobro).to.eql(\"COMPLETADO\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ana intenta cancelar un cobro completo (409)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base}}/cobros/{{cobroId}}/cancelacion"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 409: ya se pagó todo\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Historial de Ana: los pagos dicen de qué son",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base}}/cuentas/{{anaId}}/historial"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "const pagos = pm.response.json().lineas.filter(l => l.tipo === \"PAGO_CUOTA\");",
+                  "pm.test(\"Tres pagos de cuota de La cena de cumpleaños\", () => { pm.expect(pagos.length).to.eql(3); pagos.forEach(l => pm.expect(l.descripcion).to.eql(\"La cena de cumpleaños\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Otro cobro: Ana le cobra $9.000 del taxi a Beto",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "cobro-taxi-{{anaId}}"
+              }
+            ],
+            "url": "{{base}}/cobros",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cobradorId\": \"{{anaId}}\",\n  \"totalCentavos\": 900000,\n  \"descripcion\": \"El taxi\",\n  \"deudores\": [\n    \"{{betoId}}\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"cobroTaxiId\", pm.response.json().id);",
+                  "pm.collectionVariables.set(\"cuotaTaxiBeto\", pm.response.json().cuotas.find(c => c.deudorCuentaId === pm.collectionVariables.get(\"betoId\")).id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ana cancela el cobro del taxi",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base}}/cobros/{{cobroTaxiId}}/cancelacion"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Queda CANCELADO y la cuota de Beto también\", () => { const c = pm.response.json(); pm.expect(c.estado).to.eql(\"CANCELADO\"); pm.expect(c.cuotas[0].estado).to.eql(\"CANCELADA\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Beto intenta pagar el taxi cancelado (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "pago-taxi-{{betoId}}"
+              }
+            ],
+            "url": "{{base}}/cuotas/{{cuotaTaxiBeto}}/pago"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 409: el cobro fue cancelado\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
@@ -417,6 +927,42 @@
     },
     {
       "key": "cenaTransaccionId",
+      "value": ""
+    },
+    {
+      "key": "caroId",
+      "value": ""
+    },
+    {
+      "key": "daniId",
+      "value": ""
+    },
+    {
+      "key": "cobroId",
+      "value": ""
+    },
+    {
+      "key": "cuotaBeto",
+      "value": ""
+    },
+    {
+      "key": "cuotaCaro",
+      "value": ""
+    },
+    {
+      "key": "cuotaDani",
+      "value": ""
+    },
+    {
+      "key": "pagoCaroTransaccionId",
+      "value": ""
+    },
+    {
+      "key": "cobroTaxiId",
+      "value": ""
+    },
+    {
+      "key": "cuotaTaxiBeto",
       "value": ""
     }
   ]

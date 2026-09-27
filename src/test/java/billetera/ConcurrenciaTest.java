@@ -152,7 +152,7 @@ class ConcurrenciaTest {
 	 * Arranca todos los hilos a la vez (esperan en la "largada") para maximizar los
 	 * choques. Si alguno lanza una excepción no esperada, el test falla.
 	 */
-	private static <T> List<T> alMismoTiempo(int hilos, IntFunction<T> tarea) throws Exception {
+	static <T> List<T> alMismoTiempo(int hilos, IntFunction<T> tarea) throws Exception {
 		ExecutorService pool = Executors.newFixedThreadPool(hilos);
 		CountDownLatch largada = new CountDownLatch(1);
 		try {
