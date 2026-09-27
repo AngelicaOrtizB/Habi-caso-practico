@@ -1,0 +1,105 @@
+### Pruebas a mano de la billetera.
+### Requiere la extensión "REST Client" de VS Code (humao.rest-client).
+### 1. Levanta la app: ./mvnw spring-boot:run
+### 2. Dale clic a "Send Request" encima de cada pedido, en orden.
+###    Los ids se copian solos de una respuesta a la siguiente.
+### Los montos van en centavos: 5000000 = $50.000.
+
+@base = http://localhost:8080
+
+### Crear la cuenta de Ana
+# @name ana
+POST {{base}}/cuentas
+Content-Type: application/json
+
+{"titular": "Ana"}
+
+### Crear la cuenta de Beto
+# @name beto
+POST {{base}}/cuentas
+Content-Type: application/json
+
+{"titular": "Beto"}
+
+### Cargar $50.000 a Ana
+POST {{base}}/cuentas/{{ana.response.body.id}}/cargas
+Content-Type: application/json
+Idempotency-Key: carga-ana-1-{{ana.response.body.id}}
+
+{"montoCentavos": 5000000}
+
+### Ana le transfiere $20.000 a Beto por la cena
+# @name cena
+POST {{base}}/transferencias
+Content-Type: application/json
+Idempotency-Key: cena-1-{{ana.response.body.id}}
+
+{
+  "origenId": "{{ana.response.body.id}}",
+  "destinoId": "{{beto.response.body.id}}",
+  "montoCentavos": 2000000,
+  "descripcion": "La cena"
+}
+
+### Consultar el saldo de Ana (debe ser 3000000 = $30.000)
+GET {{base}}/cuentas/{{ana.response.body.id}}
+
+### Historial de Ana: la carga y la transferencia, de la más nueva a la más vieja
+GET {{base}}/cuentas/{{ana.response.body.id}}/historial
+
+### Historial de Beto
+GET {{base}}/cuentas/{{beto.response.body.id}}/historial
+
+
+### ---------------- Cosas que NO deben mover plata ----------------
+
+### Reintento de la cena con la MISMA llave: devuelve la misma transacción, no cobra dos veces
+POST {{base}}/transferencias
+Content-Type: application/json
+Idempotency-Key: cena-1-{{ana.response.body.id}}
+
+{
+  "origenId": "{{ana.response.body.id}}",
+  "destinoId": "{{beto.response.body.id}}",
+  "montoCentavos": 2000000,
+  "descripcion": "La cena"
+}
+
+### Misma llave con OTRO monto: 409 conflicto
+POST {{base}}/transferencias
+Content-Type: application/json
+Idempotency-Key: cena-1-{{ana.response.body.id}}
+
+{
+  "origenId": "{{ana.response.body.id}}",
+  "destinoId": "{{beto.response.body.id}}",
+  "montoCentavos": 9900000,
+  "descripcion": "La cena"
+}
+
+### Beto intenta mandar más de lo que tiene: 422 fondos insuficientes
+POST {{base}}/transferencias
+Content-Type: application/json
+Idempotency-Key: beto-sin-fondos-1-{{ana.response.body.id}}
+
+{
+  "origenId": "{{beto.response.body.id}}",
+  "destinoId": "{{ana.response.body.id}}",
+  "montoCentavos": 99999999
+}
+
+### Monto con decimales: 400, no se recorta
+POST {{base}}/cuentas/{{ana.response.body.id}}/cargas
+Content-Type: application/json
+Idempotency-Key: decimales-1-{{ana.response.body.id}}
+
+{"montoCentavos": 100.5}
+
+### Sin Idempotency-Key: 400
+POST {{base}}/cuentas/{{ana.response.body.id}}/cargas
+Content-Type: application/json
+
+{"montoCentavos": 1000}
+
+### Cuenta que no existe: 404
+GET {{base}}/cuentas/00000000-0000-0000-0000-000000000999

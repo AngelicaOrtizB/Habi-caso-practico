@@ -1,0 +1,423 @@
+{
+  "info": {
+    "name": "Billetera",
+    "description": "Pruebas a mano de la billetera. Levanta la app con ./mvnw spring-boot:run y usa 'Run collection' para correr todo en orden. Los montos van en centavos: 5000000 = $50.000.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Núcleo",
+      "item": [
+        {
+          "name": "Crear cuenta de Ana",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base}}/cuentas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"titular\": \"Ana\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 201 Created\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"anaId\", pm.response.json().id);",
+                  "pm.test(\"Empieza con saldo 0\", () => pm.expect(pm.response.json().saldoCentavos).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear cuenta de Beto",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base}}/cuentas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"titular\": \"Beto\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 201 Created\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"betoId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cargar $50.000 a Ana",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "carga-{{anaId}}"
+              }
+            ],
+            "url": "{{base}}/cuentas/{{anaId}}/cargas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"montoCentavos\": 5000000\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Es una carga\", () => pm.expect(pm.response.json().tipo).to.eql(\"CARGA\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ana le transfiere $20.000 a Beto (La cena)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "cena-{{anaId}}"
+              }
+            ],
+            "url": "{{base}}/transferencias",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"origenId\": \"{{anaId}}\",\n  \"destinoId\": \"{{betoId}}\",\n  \"montoCentavos\": 2000000,\n  \"descripcion\": \"La cena\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"cenaTransaccionId\", pm.response.json().transaccionId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consultar saldo de Ana ($30.000)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base}}/cuentas/{{anaId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Ana tiene $30.000\", () => pm.expect(pm.response.json().saldoCentavos).to.eql(3000000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Historial de Ana",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base}}/cuentas/{{anaId}}/historial"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "const lineas = pm.response.json().lineas;",
+                  "pm.test(\"Tiene la carga y la transferencia\", () => pm.expect(lineas.length).to.eql(2));",
+                  "pm.test(\"La más nueva es la cena, en negativo\", () => pm.expect(lineas[0].montoCentavos).to.eql(-2000000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Historial de Beto",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base}}/cuentas/{{betoId}}/historial"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Beto recibió $20.000 de Ana\", () => {",
+                  "  const linea = pm.response.json().lineas[0];",
+                  "  pm.expect(linea.montoCentavos).to.eql(2000000);",
+                  "  pm.expect(linea.contraparteTitular).to.eql(\"Ana\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Cosas que NO deben mover plata",
+      "item": [
+        {
+          "name": "Reintento de la cena con la MISMA llave",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "cena-{{anaId}}"
+              }
+            ],
+            "url": "{{base}}/transferencias",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"origenId\": \"{{anaId}}\",\n  \"destinoId\": \"{{betoId}}\",\n  \"montoCentavos\": 2000000,\n  \"descripcion\": \"La cena\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Devuelve la MISMA transacción\", () => pm.expect(pm.response.json().transaccionId).to.eql(pm.collectionVariables.get(\"cenaTransaccionId\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Misma llave con OTRO monto (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "cena-{{anaId}}"
+              }
+            ],
+            "url": "{{base}}/transferencias",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"origenId\": \"{{anaId}}\",\n  \"destinoId\": \"{{betoId}}\",\n  \"montoCentavos\": 9900000,\n  \"descripcion\": \"La cena\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 409 Conflict\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Beto manda más de lo que tiene (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "sin-fondos-{{anaId}}"
+              }
+            ],
+            "url": "{{base}}/transferencias",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"origenId\": \"{{betoId}}\",\n  \"destinoId\": \"{{anaId}}\",\n  \"montoCentavos\": 99999999\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 422 Fondos insuficientes\", () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Monto con decimales (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "decimales-{{anaId}}"
+              }
+            ],
+            "url": "{{base}}/cuentas/{{anaId}}/cargas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"montoCentavos\": 100.5\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 400: no recorta 100.5 a 100\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sin Idempotency-Key (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base}}/cuentas/{{anaId}}/cargas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"montoCentavos\": 1000\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cuenta que no existe (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base}}/cuentas/00000000-0000-0000-0000-000000000999"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saldos finales sin cambios",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base}}/cuentas/{{anaId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Ana sigue con $30.000\", () => pm.expect(pm.response.json().saldoCentavos).to.eql(3000000));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "anaId",
+      "value": ""
+    },
+    {
+      "key": "betoId",
+      "value": ""
+    },
+    {
+      "key": "cenaTransaccionId",
+      "value": ""
+    }
+  ]
+}
